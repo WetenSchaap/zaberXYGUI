@@ -4,6 +4,32 @@ from zaber_motion.ascii import Connection
 import PySimpleGUI as sg
 import time
 import serial.tools.list_ports
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backend_bases import MouseButton
+
+def draw_figure(canvas, figure):
+    '''Helper function for plotting current location'''
+    figure_canvas_agg = FigureCanvasTkAgg(figure, canvas)
+    figure_canvas_agg.draw()
+    figure_canvas_agg.get_tk_widget().pack(side='top', fill='both', expand=1)
+    return figure_canvas_agg
+
+def formatplot(ax,xmax,ymax):
+    """Correctly format plot"""
+    ax.grid(True)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlim([0,xmax])
+    ax.set_ylim([0,ymax])
+
+def on_click(event):
+    """
+    Get xydata when we click on matplotlib plot, and move there, if this behaviour is enabled.
+    """
+    if event.button is MouseButton.LEFT and event.inaxes and values["-AllowMapMove-"]:
+        print(f'data coords {event.xdata} {event.ydata},')
+        axisx.move_absolute(event.xdata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+        axisy.move_absolute(event.ydata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
 
 zaberSerialPort = ""
 allPorts = serial.tools.list_ports.comports()
@@ -20,9 +46,7 @@ if zaberSerialPort == "":
 
 with Connection.open_serial_port(zaberSerialPort) as connection:
     connection.enable_alerts()
-
     device_list = connection.detect_devices()
-
     devicex = device_list[0]
     axisx = devicex.get_axis(1)
     devicey = device_list[1]
@@ -34,12 +58,15 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
 
     x = axisx.get_position(Units.LENGTH_MICROMETRES)
     y = axisy.get_position(Units.LENGTH_MICROMETRES)
+    xmax = axisx.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
+    ymax = axisy.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
 
     # Initialize GUI
     sg.theme('DarkBrown4')  # Set your favourite theme
 
     layoutLeft = [
         [sg.Text(f'X = {x:06.1f} µm',key="-X-"), sg.Text(f"Y = {y:06.1f} µm",key="-Y-"),sg.Push(),sg.Button("Update",key="-UPDATE-")],
+        [sg.Text("Allow navigation by clicking on plot below"), sg.Checkbox("",default=True, key="-AllowMapMove-")],
         [sg.Canvas(key="-CANVAS-")],
         [sg.Text("Set absolute location:")],
         [sg.Text("X (µm) ="), sg.InputText(default_text=0,key="-XMOVE-")],
@@ -48,12 +75,14 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
     ]
 
     layoutRighy = [
-        [sg.Button("STOP", key='-STOP-')],
+        [sg.Push(),sg.Button("STOP", key='-STOP-'),sg.Push()],
+        [sg.Push(),sg.Text("Move stage using arrow keys or buttons below"),sg.Push()],
         [sg.Push(),sg.Button("⬆️",key='-UP-'),sg.Push()],
         [sg.Push(),sg.Button("⬅️",key='-LEFT-'),sg.Button("➡️",key='-RIGHT-'),sg.Push()],
         [sg.Push(),sg.Button("⬇️",key='-DOWN-'),sg.Push()],
         [sg.Text("Stepsize (mm):"), sg.InputText(default_text=1,key="-STEP-")],
-        [sg.Text("Status:"), sg.Text("All good", key ="-STATUS-")],
+        [sg.VPush()],
+        [sg.Text("Status:"), sg.Text("All good", key ="-STATUS-",size=40)],
     ]
 
     layout = [
@@ -68,7 +97,18 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         'ZABER XY-stage controller', 
         layout, 
         return_keyboard_events=True,
-        )
+        finalize=True
+    )
+
+    # Initialize location plot
+    canvas_elem = window['-CANVAS-']
+    canvas = canvas_elem.TKCanvas
+    # draw the intitial scatter plot
+    fig, ax = plt.subplots(1,1)
+    formatplot(ax,xmax,ymax)
+    ax.scatter(x,y,s=100)
+    plt.connect('button_press_event', on_click) # This makes clicking somewhere on the plot do something
+    fig_agg = draw_figure(canvas, fig)
 
     while True:  # Event Loop
         event, values = window.read(timeout=50)
@@ -89,7 +129,6 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
-            print("moving!")
             window["-STATUS-"].update("All good")
         elif event in ("-DOWN-","Down:116"):
             try:
@@ -102,7 +141,6 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
-            print("moving!")
             window["-STATUS-"].update("All good")
         elif event in ("-RIGHT-","Right:114"):
             try:
@@ -115,7 +153,6 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
-            print("moving!")
             window["-STATUS-"].update("All good")
         elif event in ("-LEFT-","Left:113"):
             try:
@@ -128,7 +165,6 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
-            print("moving!")
             window["-STATUS-"].update("All good")
         elif event == "-MOVE-":
             try:
@@ -142,16 +178,19 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 axisy.move_absolute(Yloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
-            print("moving!")
             window["-STATUS-"].update("All good")
         elif event in ("__TIMEOUT__", "-UPDATE-"):
-            pass # do nothing, just update x/y
-        else:
-            # unknown command?
-            print(event, values)
+            pass # do nothing for now, just update x/y
+        # else:
+            # Useful to see what new keypresses etc are coming in
+            # print(event, values)
         # Finally, update x,y values with reported.
         x = axisx.get_position(Units.LENGTH_MICROMETRES)
         y = axisy.get_position(Units.LENGTH_MICROMETRES)
         window["-X-"].update(f"X = {x:06.1f} µm")
         window["-Y-"].update(f"Y = {y:06.1f} µm")
+        ax.cla()
+        formatplot(ax,xmax,ymax)
+        ax.scatter(x,y,s=100)
+        fig_agg.draw()
     window.close()
