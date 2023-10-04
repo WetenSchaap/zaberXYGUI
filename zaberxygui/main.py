@@ -15,12 +15,18 @@ def draw_figure(canvas, figure):
     figure_canvas_agg.get_tk_widget().pack(side='top', fill='both', expand=1)
     return figure_canvas_agg
 
-def formatplot(ax,xmax,ymax):
+def formatplot(ax,xmax,ymax,xSign=1,ySign=1):
     """Correctly format plot"""
     ax.grid(True)
     ax.set_aspect('equal', adjustable='box')
-    ax.set_xlim([0,xmax])
-    ax.set_ylim([0,ymax])
+    if xSign == 1:
+        ax.set_xlim([0,xmax])
+    elif xSign == -1:
+        ax.set_xlim(xmax,0)
+    if ySign == 1:
+        ax.set_ylim([0,ymax])
+    elif ySign == -1:
+        ax.set_ylim(ymax,0)
 
 def on_click(event):
     """
@@ -34,10 +40,10 @@ def on_click(event):
 zaberSerialPort = ""
 allPorts = serial.tools.list_ports.comports()
 for device in allPorts:
-    if device.vid == 1027 and device.pid == 24577:
+    if device.vid == 1027 and device.pid == 24577: # Change this to the actual device you have to get autoconnect to work. The vid & pid can be found using the pyserial module.
         zaberSerialPort = device.device
 if zaberSerialPort == "":
-    zaberSerialPort = input("Zaber ZY stage not autodetected. Input serial port manually to continue, or press enter to quit.")
+    zaberSerialPort = input("Zaber XY stage not autodetected. Input serial port manually to continue, or press enter to quit.")
     if zaberSerialPort == "":
         import sys
         sys.exit()
@@ -60,7 +66,14 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
     y = axisy.get_position(Units.LENGTH_MICROMETRES)
     xmax = axisx.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
     ymax = axisy.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
+    xSign = 1
+    ySign = 1
+    xySwitch = False
 
+    boolToSign = {
+        True : -1,
+        False : 1,
+    }
     # Initialize GUI
     sg.theme('DarkBrown4')  # Set your favourite theme
 
@@ -82,7 +95,12 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         [sg.Push(),sg.Button("⬇️",key='-DOWN-'),sg.Push()],
         [sg.Text("Stepsize (mm):"), sg.InputText(default_text=1,key="-STEP-")],
         [sg.VPush()],
+        [sg.Text("Mirror X-axis"), sg.Checkbox("",default=False, enable_events=True, key="-MirrorX-")],
+        [sg.Text("Mirror Y-axis"), sg.Checkbox("",default=False, enable_events=True, key="-MirrorY-")],
+        [sg.Text("Switch X & Y axis"), sg.Checkbox("",default=False,  enable_events=True, key="-SwitchXY-")],
+        [sg.VPush()],
         [sg.Text("Status:"), sg.Text("All good", key ="-STATUS-",size=40)],
+
     ]
 
     layout = [
@@ -114,7 +132,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         event, values = window.read(timeout=50)
         if event == sg.WIN_CLOSED:
             break
-        elif event in ("STOP","Escape:9"):
+        elif event in ("-STOP-","Escape:9"):
             axisx.stop(wait_until_idle = False)
             axisy.stop(wait_until_idle = False)
             window["-STATUS-"].update("EMERGENCY STOP")
@@ -125,7 +143,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisy.move_relative(stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axisy.move_relative( ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -137,7 +155,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisy.move_relative(-stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axisy.move_relative(-1 * ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -149,7 +167,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisx.move_relative(stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axisx.move_relative(xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -161,7 +179,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisx.move_relative(-stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axisx.move_relative(-1 * xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -174,23 +192,29 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Set x or y not a number!")
                 continue
             try:
-                axisx.move_absolute(Xloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
-                axisy.move_absolute(Yloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+                axisx.move_absolute(xSign * Xloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+                axisy.move_absolute(ySign * Yloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
             window["-STATUS-"].update("All good")
-        elif event in ("__TIMEOUT__", "-UPDATE-"):
+        elif event in ('-MirrorX-'):
+            xSign = boolToSign[values[event]]
+        elif event in ('-MirrorY-'):
+            ySign = boolToSign[values[event]]
+        elif event in ('-UPDATE-'): # Usefull for printing debug
+            pass
+        elif event in ("__TIMEOUT__"):
             pass # do nothing for now, just update x/y
-        # else:
+        else:
             # Useful to see what new keypresses etc are coming in
-            # print(event, values)
+            print(event, values)
         # Finally, update x,y values with reported.
         x = axisx.get_position(Units.LENGTH_MICROMETRES)
         y = axisy.get_position(Units.LENGTH_MICROMETRES)
         window["-X-"].update(f"X = {x:06.1f} µm")
         window["-Y-"].update(f"Y = {y:06.1f} µm")
         ax.cla()
-        formatplot(ax,xmax,ymax)
+        formatplot(ax,xmax,ymax,xSign,ySign)
         ax.scatter(x,y,s=100)
         fig_agg.draw()
     window.close()
