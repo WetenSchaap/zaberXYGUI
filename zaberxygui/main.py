@@ -34,8 +34,8 @@ def on_click(event):
     """
     if event.button is MouseButton.LEFT and event.inaxes and values["-AllowMapMove-"]:
         print(f'data coords {event.xdata} {event.ydata},')
-        axisx.move_absolute(event.xdata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
-        axisy.move_absolute(event.ydata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+        axis['x'].move_absolute(event.xdata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+        axis['y'].move_absolute(event.ydata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
 
 zaberSerialPort = ""
 allPorts = serial.tools.list_ports.comports()
@@ -74,6 +74,11 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         True : -1,
         False : 1,
     }
+    axis = { # This seems superfluous, but makes switching definition of what is x and what is y a whole lot easier
+        'x' : axisx,
+        'y' : axisy,
+    }
+
     # Initialize GUI
     sg.theme('DarkBrown4')  # Set your favourite theme
 
@@ -133,8 +138,8 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         if event == sg.WIN_CLOSED:
             break
         elif event in ("-STOP-","Escape:9"):
-            axisx.stop(wait_until_idle = False)
-            axisy.stop(wait_until_idle = False)
+            axis['x'].stop(wait_until_idle = False)
+            axis['y'].stop(wait_until_idle = False)
             window["-STATUS-"].update("EMERGENCY STOP")
         elif event in ("-UP-","Up:111"):
             try:
@@ -143,7 +148,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisy.move_relative( ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axis['y'].move_relative( ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -155,7 +160,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisy.move_relative(-1 * ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axis['y'].move_relative(-1 * ySign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -167,7 +172,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisx.move_relative(xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axis['x'].move_relative(xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -179,7 +184,7 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Stepsize not a number!")
                 continue
             try:
-                axisx.move_relative(-1 * xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
+                axis['x'].move_relative(-1 * xSign * stepsize,Units.LENGTH_MILLIMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
                 continue
@@ -189,11 +194,12 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 Xloc = float( values["-XMOVE-"] )
                 Yloc = float( values["-YMOVE-"] )
             except ValueError:
-                window["-STATUS-"].update("Set x or y not a number!")
+                window["-STATUS-"].update("Set x or y to not a number!")
                 continue
             try:
-                axisx.move_absolute(xSign * Xloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
-                axisy.move_absolute(ySign * Yloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
+                # You are putting numbers here so do not use the sign flag like with relative movement
+                axis['x'].move_absolute( Xloc,Units.LENGTH_MICROMETRES,wait_until_idle = False) 
+                axis['y'].move_absolute( Yloc,Units.LENGTH_MICROMETRES,wait_until_idle = False)
             except zaber_motion.CommandFailedException:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
             window["-STATUS-"].update("All good")
@@ -201,6 +207,18 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             xSign = boolToSign[values[event]]
         elif event in ('-MirrorY-'):
             ySign = boolToSign[values[event]]
+        elif event in ('-SwitchXY-'):
+            xySwitch = values[event]
+            if xySwitch:
+                axis = {
+                    'x' : axisy,
+                    'y' : axisx,
+                }
+            else:
+                axis = {
+                    'x' : axisx,
+                    'y' : axisy,
+                }
         elif event in ('-UPDATE-'): # Usefull for printing debug
             pass
         elif event in ("__TIMEOUT__"):
@@ -209,8 +227,8 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
             # Useful to see what new keypresses etc are coming in
             print(event, values)
         # Finally, update x,y values with reported.
-        x = axisx.get_position(Units.LENGTH_MICROMETRES)
-        y = axisy.get_position(Units.LENGTH_MICROMETRES)
+        x = axis['x'].get_position(Units.LENGTH_MICROMETRES)
+        y = axis['y'].get_position(Units.LENGTH_MICROMETRES)
         window["-X-"].update(f"X = {x:06.1f} µm")
         window["-Y-"].update(f"Y = {y:06.1f} µm")
         ax.cla()
