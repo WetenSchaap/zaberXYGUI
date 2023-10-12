@@ -204,11 +204,11 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
                 window["-STATUS-"].update("Command rejected, possibly out of range?")
             window["-STATUS-"].update("All good")
         elif event in ('-MirrorX-'):
-            xSign = boolToSign[values[event]]
+            xSign = boolToSign[values['-MirrorX-']]
         elif event in ('-MirrorY-'):
-            ySign = boolToSign[values[event]]
+            ySign = boolToSign[values['-MirrorY-']]
         elif event in ('-SwitchXY-'):
-            xySwitch = values[event]
+            xySwitch = values['-SwitchXY-']
             if xySwitch:
                 axis = {
                     'x' : axisy,
@@ -224,8 +224,9 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         elif event in ("__TIMEOUT__"):
             pass # do nothing for now, just update x/y
         else:
-            # Useful to see what new keypresses etc are coming in
-            print(event, values)
+            # Can be useful to see what new keypresses etc are coming in
+            pass
+            # print(event, values)
         # Finally, update x,y values with reported.
         x = axis['x'].get_position(Units.LENGTH_MICROMETRES)
         y = axis['y'].get_position(Units.LENGTH_MICROMETRES)
