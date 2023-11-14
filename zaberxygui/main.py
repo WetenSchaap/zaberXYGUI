@@ -37,49 +37,28 @@ def on_click(event):
         axis['x'].move_absolute(event.xdata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
         axis['y'].move_absolute(event.ydata,Units.LENGTH_MICROMETRES,wait_until_idle = False)
 
-zaberSerialPort = ""
-allPorts = serial.tools.list_ports.comports()
-for device in allPorts:
-    if device.vid == 1027 and device.pid == 24577: # Change this to the actual device you have to get autoconnect to work. The vid & pid can be found using the pyserial module.
-        zaberSerialPort = device.device
-if zaberSerialPort == "":
-    zaberSerialPort = input("Zaber XY stage not autodetected. Input serial port manually to continue, or press enter to quit.")
+
+def detectZaber():
+    """
+    Detect the Zaber stage automatically.
+    I do this based on vid and pid parameters, which are specific to a certain model. You can change these numbers to your own setup.
+    """
+    zaberSerialPort = ""
+    allPorts = serial.tools.list_ports.comports()
+    for device in allPorts:
+        if device.vid == 1027 and device.pid == 24577: # Change this to the actual device you have to get autoconnect to work. The vid & pid can be found using the pyserial module.
+            zaberSerialPort = device.device
     if zaberSerialPort == "":
-        import sys
-        sys.exit()
+        zaberSerialPort = input("Zaber XY stage not autodetected. Input serial port manually to continue, or press enter to quit.")
+        if zaberSerialPort == "":
+            import sys
+            sys.exit("Zaber port could not be (auto-)detected")
+    return zaberSerialPort
 
 # Initalize ZABER
-
+zaberSerialPort = detectZaber()
 with Connection.open_serial_port(zaberSerialPort) as connection:
-    connection.enable_alerts()
-    device_list = connection.detect_devices()
-    devicex = device_list[0]
-    axisx = devicex.get_axis(1)
-    devicey = device_list[1]
-    axisy = devicey.get_axis(1)
-    if not axisx.is_homed():
-        axisx.home()
-    if not axisy.is_homed():
-        axisy.home()
-
-    x = axisx.get_position(Units.LENGTH_MICROMETRES)
-    y = axisy.get_position(Units.LENGTH_MICROMETRES)
-    xmax = axisx.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
-    ymax = axisy.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
-    xSign = 1
-    ySign = 1
-    xySwitch = False
-
-    boolToSign = {
-        True : -1,
-        False : 1,
-    }
-    axis = { # This seems superfluous, but makes switching definition of what is x and what is y a whole lot easier
-        'x' : axisx,
-        'y' : axisy,
-    }
-
-    # Initialize GUI
+    # First initialize the GUI
     sg.theme('DarkBrown4')  # Set your favourite theme
 
     layoutLeft = [
@@ -123,16 +102,52 @@ with Connection.open_serial_port(zaberSerialPort) as connection:
         finalize=True
     )
 
+    # Initialize zaber, get some basic info
+    connection.enable_alerts()
+    device_list = connection.detect_devices()
+    devicex = device_list[0]
+    axisx = devicex.get_axis(1)
+    devicey = device_list[1]
+    axisy = devicey.get_axis(1)
+    xmax = axisx.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
+    ymax = axisy.settings.get("limit.max",unit = Units.LENGTH_MICROMETRES)
+    xSign = 1
+    ySign = 1
+    xySwitch = False
+    boolToSign = {
+        True : -1,
+        False : 1,
+    }
+    axis = { # This seems superfluous, but makes switching definition of what is x and what is y a whole lot easier
+        'x' : axisx,
+        'y' : axisy,
+    }
+
     # Initialize location plot
     canvas_elem = window['-CANVAS-']
     canvas = canvas_elem.TKCanvas
     # draw the intitial scatter plot
     fig, ax = plt.subplots(1,1)
     formatplot(ax,xmax,ymax)
-    ax.scatter(x,y,s=100)
+    ax.scatter(0,0,s=100)
     plt.connect('button_press_event', on_click) # This makes clicking somewhere on the plot do something
     fig_agg = draw_figure(canvas, fig)
+    # Now check if zaber is ready to go or homing needs to happen.
+    if not axisx.is_homed():
+        window["-STATUS-"].update("Stage is homing")
+        axisx.home()
+    if not axisy.is_homed():
+        window["-STATUS-"].update("Stage is homing")
+        axisy.home()
+    window["-STATUS-"].update("Zaber ready to start")
+    x = axisx.get_position(Units.LENGTH_MICROMETRES)
+    y = axisy.get_position(Units.LENGTH_MICROMETRES)
 
+    window["-X-"].update(f"X = {x:06.1f} µm")
+    window["-Y-"].update(f"Y = {y:06.1f} µm")
+    ax.cla()
+    ax.scatter(x,y,s=100)
+    fig_agg.draw()
     while True:  # Event Loop
         event, values = window.read(timeout=50)
         if event == sg.WIN_CLOSED:
